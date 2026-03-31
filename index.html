@@ -733,7 +733,7 @@
                 <div class="btn-pad" data-dir="8">↑</div>
                 <div class="btn-pad" data-dir="9">↗</div>
                 <div class="btn-pad" data-dir="4">←</div>
-                <div class="btn-pad" style="visibility:hidden"></div>
+                <div class="btn-pad" id="btn-dir-pad-center">向</div>
                 <div class="btn-pad" data-dir="6">→</div>
                 <div class="btn-pad" data-dir="1">↙</div>
                 <div class="btn-pad" data-dir="2">↓</div>
@@ -4219,44 +4219,98 @@
                     }
                 });
 
-                // スワイプ操作（キャンバス上の8方向移動）
+                // スワイプ操作（キャンバス上の8方向移動・長押しで連続移動）
                 const canvasContainer = document.getElementById('canvas-container');
                 let swipeTouchStartX = 0;
                 let swipeTouchStartY = 0;
-                const SWIPE_THRESHOLD = 18; // ピクセル（小さいほど敏感）
+                let swipeMoveX = 0;       // 現在押下中の移動方向
+                let swipeMoveY = 0;
+                let swipeInterval = null; // 連続移動タイマー
+                let swipeTimeout = null;  // 初動ディレイ用タイマー
+                const SWIPE_THRESHOLD = 18;      // 最初の判定距離（px）
+                const SWIPE_INITIAL_DELAY = 350; // 1歩目と2歩目の間の待機時間（ms）
+                const SWIPE_REPEAT_MS = 150;     // 連続移動の速度（ms）
+
+                // 角度から8方向(mx,my)を計算するヘルパー
+                const angleToDir = (dx, dy) => {
+                    const angle = Math.atan2(dy, dx);
+                    const PI = Math.PI;
+                    let mx = 0, my = 0;
+                    if      (angle >  -PI/8  && angle <=  PI/8)  { mx =  1; my =  0; }
+                    else if (angle >   PI/8  && angle <= 3*PI/8) { mx =  1; my =  1; }
+                    else if (angle > 3*PI/8  && angle <= 5*PI/8) { mx =  0; my =  1; }
+                    else if (angle > 5*PI/8  && angle <= 7*PI/8) { mx = -1; my =  1; }
+                    else if (angle > 7*PI/8  || angle <= -7*PI/8){ mx = -1; my =  0; }
+                    else if (angle > -7*PI/8 && angle <= -5*PI/8){ mx = -1; my = -1; }
+                    else if (angle > -5*PI/8 && angle <= -3*PI/8){ mx =  0; my = -1; }
+                    else if (angle > -3*PI/8 && angle <= -PI/8)  { mx =  1; my = -1; }
+                    return { mx, my };
+                };
+
+                // 連続移動を止めるヘルパー
+                const stopSwipeRepeat = () => {
+                    if (swipeTimeout !== null) {
+                        clearTimeout(swipeTimeout);
+                        swipeTimeout = null;
+                    }
+                    if (swipeInterval !== null) {
+                        clearInterval(swipeInterval);
+                        swipeInterval = null;
+                    }
+                    swipeMoveX = 0;
+                    swipeMoveY = 0;
+                };
 
                 canvasContainer.addEventListener('touchstart', (e) => {
-                    // 会話中はスワイプ無効
                     if (this.isConversationActive()) return;
+                    stopSwipeRepeat();
                     swipeTouchStartX = e.touches[0].clientX;
                     swipeTouchStartY = e.touches[0].clientY;
                 }, { passive: true });
 
-                canvasContainer.addEventListener('touchend', (e) => {
+                canvasContainer.addEventListener('touchmove', (e) => {
                     if (this.isConversationActive()) return;
-                    const dx = e.changedTouches[0].clientX - swipeTouchStartX;
-                    const dy = e.changedTouches[0].clientY - swipeTouchStartY;
+                    const dx = e.touches[0].clientX - swipeTouchStartX;
+                    const dy = e.touches[0].clientY - swipeTouchStartY;
                     const absDx = Math.abs(dx);
                     const absDy = Math.abs(dy);
 
-                    // 最低距離未満はタップとみなし移動しない
+                    // 閾値を超えたら移動判定
                     if (absDx < SWIPE_THRESHOLD && absDy < SWIPE_THRESHOLD) return;
 
-                    // 8方向判定：dx/dyの比から斜め・直線を区別
-                    let mx = 0, my = 0;
-                    const angle = Math.atan2(dy, dx); // -π ～ π
-                    const PI = Math.PI;
-                    if (angle > -PI / 8 && angle <= PI / 8)            { mx =  1; my =  0; } // 右
-                    else if (angle > PI / 8 && angle <= 3 * PI / 8)    { mx =  1; my =  1; } // 右下
-                    else if (angle > 3 * PI / 8 && angle <= 5 * PI / 8){ mx =  0; my =  1; } // 下
-                    else if (angle > 5 * PI / 8 && angle <= 7 * PI / 8){ mx = -1; my =  1; } // 左下
-                    else if (angle > 7 * PI / 8 || angle <= -7 * PI / 8){ mx = -1; my =  0; } // 左
-                    else if (angle > -7 * PI / 8 && angle <= -5 * PI / 8){ mx = -1; my = -1; } // 左上
-                    else if (angle > -5 * PI / 8 && angle <= -3 * PI / 8){ mx =  0; my = -1; } // 上
-                    else if (angle > -3 * PI / 8 && angle <= -PI / 8)  { mx =  1; my = -1; } // 右上
+                    const { mx, my } = angleToDir(dx, dy);
 
-                    SoundManager.playUI();
-                    this.actionMove(mx, my);
+                    // 方向が変わった時に移動ループを再スタート
+                    if (mx !== swipeMoveX || my !== swipeMoveY) {
+                        stopSwipeRepeat();
+                        swipeMoveX = mx;
+                        swipeMoveY = my;
+
+                        // 【1歩目】即座に移動
+                        SoundManager.playUI();
+                        this.actionMove(mx, my);
+
+                        // 【初動ディレイ】一定時間待ってから連続移動を開始
+                        swipeTimeout = setTimeout(() => {
+                            if (this.isConversationActive()) return;
+                            
+                            // 【2歩目以降】リピート移動開始
+                            swipeInterval = setInterval(() => {
+                                if (this.isConversationActive()) { stopSwipeRepeat(); return; }
+                                SoundManager.playUI();
+                                this.actionMove(swipeMoveX, swipeMoveY);
+                            }, SWIPE_REPEAT_MS);
+                        }, SWIPE_INITIAL_DELAY);
+                    }
+                }, { passive: true });
+
+                canvasContainer.addEventListener('touchend', () => {
+                    // 指を離したら連続移動を停止
+                    stopSwipeRepeat();
+                }, { passive: true });
+
+                canvasContainer.addEventListener('touchcancel', () => {
+                    stopSwipeRepeat();
                 }, { passive: true });
 
                 // アクションボタン
@@ -4423,6 +4477,22 @@
                         dirPad.classList.add('collapsed');
                     } else {
                         dirPad.classList.remove('collapsed');
+                    }
+                });
+
+                // 方向パッド中央「向」ボタン：向きモード切り替え
+                document.getElementById('btn-dir-pad-center').addEventListener('click', () => {
+                    if (this.isConversationActive()) return;
+                    this.isDirectionMode = !this.isDirectionMode;
+                    const btn = document.getElementById('btn-dir-pad-center');
+                    if (this.isDirectionMode) {
+                        btn.style.background = '#ffeb3b';
+                        btn.style.color = '#000';
+                        UI.log('向きモードON：移動キーで向きだけを変えます。');
+                    } else {
+                        btn.style.background = '';
+                        btn.style.color = '';
+                        UI.log('向きモードOFF：通常移動に戻りました。');
                     }
                 });
                 document.getElementById('btn-menu-sort').addEventListener('click', () => {
