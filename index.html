@@ -787,7 +787,7 @@
         <!-- 会話モーダル -->
         <div id="conversation-modal">
             <div id="conversation-content">
-                <img src="Assets/moti.PNG" alt="もちにゃふぇ" id="conversation-icon">
+                <img src="Assets/moti.png" alt="もちにゃふぇ" id="conversation-icon">
                 <div id="conversation-text-container">
                     <div id="conversation-name">もちにゃふぇ</div>
                     <div id="conversation-text"></div>
@@ -1241,6 +1241,7 @@
                 this.isAttacking = false; // 攻撃アニメーション中にトゥルー
                 this.fullnessDuration = 0; // 満腹度が減らない残りターン数
                 this.isDirectionMode = false;
+                this.walkFrame = 0; // 0 or 1
                 // 覚醒ゲージ関連
                 this.awakenGauge = 0;   // 現在のゲージ量
                 this.awakenMax = 100;   // 満タンになる値
@@ -2594,6 +2595,51 @@
             ]
         };
 
+        const PLAYER_SPRITE_CONFIG = {
+            'down': [
+                { sx: 0, sy: 0, sw: 147, sh: 170 },
+                { sx: 0, sy: 170, sw: 148, sh: 154 }
+            ],
+            'up': [
+                { sx: 0, sy: 324, sw: 133, sh: 166 },
+                { sx: 0, sy: 490, sw: 136, sh: 151 }
+            ],
+            'left': [
+                { sx: 0, sy: 641, sw: 117, sh: 146 },
+                { sx: 0, sy: 787, sw: 107, sh: 152 }
+            ],
+            'right': [
+                { sx: 0, sy: 939, sw: 116, sh: 146 },
+                { sx: 0, sy: 1085, sw: 106, sh: 152 }
+            ],
+            'down-right': [
+                { sx: 0, sy: 1237, sw: 131, sh: 142 },
+                { sx: 0, sy: 1379, sw: 139, sh: 154 }
+            ],
+            'down-left': [
+                { sx: 0, sy: 1533, sw: 129, sh: 141 },
+                { sx: 0, sy: 1674, sw: 141, sh: 155 }
+            ],
+            'up-right': [
+                { sx: 0, sy: 1829, sw: 133, sh: 140 },
+                { sx: 0, sy: 1969, sw: 133, sh: 139 }
+            ],
+            'up-left': [
+                { sx: 0, sy: 2108, sw: 133, sh: 139 },
+                { sx: 0, sy: 2247, sw: 133, sh: 139 }
+            ],
+            'attack': {
+                'down': { sx: 0, sy: 2386, sw: 133, sh: 137 },
+                'up': { sx: 0, sy: 2523, sw: 133, sh: 166 },
+                'left': { sx: 0, sy: 2689, sw: 133, sh: 133 },
+                'right': { sx: 0, sy: 2822, sw: 133, sh: 133 },
+                'down-right': { sx: 0, sy: 2955, sw: 133, sh: 144 },
+                'down-left': { sx: 0, sy: 3099, sw: 133, sh: 142 },
+                'up-right': { sx: 0, sy: 3241, sw: 133, sh: 139 },
+                'up-left': { sx: 0, sy: 3380, sw: 133, sh: 139 }
+            }
+        };
+
         class PixelArtEngine {
             static textures = {};
             static mochinyafeImg = null;
@@ -2606,7 +2652,7 @@
                     this.mochinyafeImg = new Image();
                     this.mochinyafeImg.onload = () => resolve();
                     this.mochinyafeImg.onerror = () => resolve();
-                    this.mochinyafeImg.src = 'mochinyafe_hi_res.png';
+                    this.mochinyafeImg.src = 'motimoti.png';
                 });
             }
             static createTexture(data, size) {
@@ -2861,9 +2907,9 @@
 
                         // 40階到達時の会話イベント
                         const script = [
-                            { name: 'もちにゃふぇ', text: 'ふぇ〜、結構遠くまできたな、あれ？？', icon: 'Assets/moti.PNG' },
+                            { name: 'もちにゃふぇ', text: 'ふぇ〜、結構遠くまできたな、あれ？？', icon: 'Assets/moti.png' },
                             { name: 'ダークもちにゃふぇ', text: '全て終わらせる', icon: 'Assets/darkmoti.png' },
-                            { name: 'もちにゃふぇ', text: 'このダンジョン内のモンスター達が襲ってくるのは君が元凶なの？', icon: 'Assets/moti.PNG' },
+                            { name: 'もちにゃふぇ', text: 'このダンジョン内のモンスター達が襲ってくるのは君が元凶なの？', icon: 'Assets/moti.png' },
                             { name: 'ダークもちにゃふぇ', text: 'そんなことは知らない、全て闇に染めてやる！いくぞ！！', icon: 'Assets/darkmoti.png' }
                         ];
                         UI.showConversation(script);
@@ -2885,13 +2931,13 @@
 
                         // 60階到達時の遭遇会話イベント
                         const script = [
-                            { name: 'もちにゃふぇ', text: 'ここ、なんかものすごい気配がするな…', icon: 'Assets/moti.PNG' },
+                            { name: 'もちにゃふぇ', text: 'ここ、なんかものすごい気配がするな…', icon: 'Assets/moti.png' },
                             { name: '創造主', text: '貴様はなんだ！！全てを我が力で自由にするのだ！！', icon: 'Assets/godmoti.png' },
-                            { name: 'もちにゃふぇ', text: 'そうか、きみだったんだね、全ての元凶は！！僕がこの世界を守るんだ！！', icon: 'Assets/moti.PNG' },
+                            { name: 'もちにゃふぇ', text: 'そうか、きみだったんだね、全ての元凶は！！僕がこの世界を守るんだ！！', icon: 'Assets/moti.png' },
                             { name: '創造主', text: 'ふはは！ふにゃふにゃの貴様に何ができる！！', icon: 'Assets/godmoti.png' },
-                            { name: 'もちにゃふぇ', text: '…この世界を守ることができる！！', icon: 'Assets/moti.PNG' },
+                            { name: 'もちにゃふぇ', text: '…この世界を守ることができる！！', icon: 'Assets/moti.png' },
                             { name: '創造主', text: '青二才が、貴様も操って、貴様の大切な人を自らの手で襲わせてくれようぞ！', icon: 'Assets/godmoti.png' },
-                            { name: 'もちにゃふぇ', text: '君は、絶対に、絶対に許さない！！', icon: 'Assets/moti.PNG' }
+                            { name: 'もちにゃふぇ', text: '君は、絶対に、絶対に許さない！！', icon: 'Assets/moti.png' }
                         ];
                         UI.showConversation(script);
                     }
@@ -3099,7 +3145,7 @@
                     else if (dy < 0) this.player.direction = 'up';
 
                     this.isDirectionMode = false; // モード解除
-                    const btn = document.getElementById('btn-dir-change');
+                    const btn = document.getElementById('btn-dir-pad-center');
                     if (btn) {
                         btn.style.background = '';
                         btn.style.color = '';
@@ -3260,6 +3306,7 @@
                 // 通常移動
                 this.player.x = nx;
                 this.player.y = ny;
+                this.player.walkFrame = (this.player.walkFrame + 1) % 2; // 歩行アニメーション切り替え
 
                 // 足元のアイテムを自動取得
                 const itemIdx = this.items.findIndex(i => i.x === this.player.x && i.y === this.player.y);
@@ -4114,13 +4161,13 @@
 
                 const script = [
                     { name: '創造主', text: 'ぐは、貴様は何を求めるのだ？', icon: 'Assets/godmoti.png' },
-                    { name: 'もちにゃふぇ', text: '僕はただ、にゃんるなちゃん達と楽しく暮らしたいだけだ！！', icon: 'Assets/moti.PNG' },
+                    { name: 'もちにゃふぇ', text: '僕はただ、にゃんるなちゃん達と楽しく暮らしたいだけだ！！', icon: 'Assets/moti.png' },
                     { name: '創造主', text: 'くそーーー！！', icon: 'Assets/godmoti.png' },
-                    { name: 'もちにゃふぇ', text: 'ふーー、終わった…', icon: 'Assets/moti.PNG' },
-                    { name: 'ナレーション', text: '不思議な光がもちにゃふぇを包む', icon: 'Assets/moti.PNG' },
-                    { name: 'もちにゃふぇ', text: 'ふぇ〜〜', icon: 'Assets/moti.PNG' },
+                    { name: 'もちにゃふぇ', text: 'ふーー、終わった…', icon: 'Assets/moti.png' },
+                    { name: 'ナレーション', text: '不思議な光がもちにゃふぇを包む', icon: 'Assets/moti.png' },
+                    { name: 'もちにゃふぇ', text: 'ふぇ〜〜', icon: 'Assets/moti.png' },
                     { name: 'にゃんるな', text: 'もちにゃふぇ、今日も癒しだねぇ', icon: 'Assets/runa.png' },
-                    { name: 'もちにゃふぇ', text: 'きゅーーー、ふぇぇ〜〜', icon: 'Assets/moti.PNG' }
+                    { name: 'もちにゃふぇ', text: 'きゅーーー、ふぇぇ〜〜', icon: 'Assets/moti.png' }
                 ];
 
                 UI.showConversation(script, () => {
@@ -4172,9 +4219,9 @@
 
                 const script = [
                     { name: 'ダークもちにゃふぇ', text: 'そんなーー、俺としたことが、こんなふにゃふにゃのやつに負けるだとーーー！！！', icon: 'Assets/darkmoti.png' },
-                    { name: 'もちにゃふぇ', text: '僕には、にゃんるなちゃんやツキネコちゃんが、大切なんだ！にゃんるなちゃん達がいる世界を、闇に染めるわけにはいかない！！', icon: 'Assets/moti.PNG' },
+                    { name: 'もちにゃふぇ', text: '僕には、にゃんるなちゃんやツキネコちゃんが、大切なんだ！にゃんるなちゃん達がいる世界を、闇に染めるわけにはいかない！！', icon: 'Assets/moti.png' },
                     { name: 'ダークもちにゃふぇ', text: 'それが、お前の強さなんだな、完敗だ…', icon: 'Assets/darkmoti.png' },
-                    { name: 'もちにゃふぇ', text: 'さすがに疲れたな…戻って、休むよ', icon: 'Assets/moti.PNG' }
+                    { name: 'もちにゃふぇ', text: 'さすがに疲れたな…戻って、休むよ', icon: 'Assets/moti.png' }
                 ];
 
                 UI.showConversation(script, () => {
@@ -4674,18 +4721,30 @@
                 }
 
                 if (PixelArtEngine.mochinyafeImg && PixelArtEngine.mochinyafeImg.complete) {
-                    let drawDir = dir;
-                    if (dir === 'up-left' || dir === 'up-right') drawDir = 'up';
-                    else if (dir === 'down-left' || dir === 'down-right') drawDir = 'down';
-                    const dirIndices = { 'down': 0, 'left': 1, 'right': 2, 'up': 3 };
-                    let baseCol = dirIndices[drawDir] || 0;
-                    let col = baseCol;
+                    let sprite;
                     if (atk) {
-                        let atkCol = baseCol;
-                        if (baseCol === 1) atkCol = 2; else if (baseCol === 2) atkCol = 1;
-                        col = atkCol + 4;
+                        sprite = PLAYER_SPRITE_CONFIG.attack[dir] || PLAYER_SPRITE_CONFIG.attack['down'];
+                    } else {
+                        const frames = PLAYER_SPRITE_CONFIG[dir] || PLAYER_SPRITE_CONFIG['down'];
+                        sprite = frames[this.player.walkFrame % frames.length];
                     }
-                    this.ctx.drawImage(PixelArtEngine.mochinyafeImg, col * 64, 0, 64, 64, px - TILE_SIZE / 2, py - TILE_SIZE / 2, TILE_SIZE * 2, TILE_SIZE * 2);
+
+                    if (sprite) {
+                        // タイルサイズ（TILE_SIZE = 32）に収まるようにスケーリング
+                        const targetSize = TILE_SIZE;
+                        const scale = Math.min(targetSize / sprite.sw, targetSize / sprite.sh);
+                        const drawW = sprite.sw * scale;
+                        const drawH = sprite.sh * scale;
+                        // タイルの中央に配置
+                        const offX = (targetSize - drawW) / 2;
+                        const offY = (targetSize - drawH) / 2;
+
+                        this.ctx.drawImage(
+                            PixelArtEngine.mochinyafeImg,
+                            sprite.sx, sprite.sy, sprite.sw, sprite.sh,
+                            px + offX, py + offY, drawW, drawH
+                        );
+                    }
                 } else {
                     const playerTex = PixelArtEngine.textures[atk ? `player_atk_${dir}` : (dir === 'down' ? 'player' : `player_${dir}`)] || PixelArtEngine.textures.player;
                     this.ctx.drawImage(playerTex, px, py);
@@ -4906,8 +4965,8 @@
                 // 会話イベントの表示
                 function showIntroConversation(onComplete) {
                     const script = [
-                        { name: 'もちにゃふぇ', text: '…ふぇ〜〜、あれ？いつものように、にゃんるなちゃんの側で寝ていた気がしたんだけどな…', icon: 'Assets/moti.PNG' },
-                        { name: 'もちにゃふぇ', text: 'そもそも何でしゃべれるんだろ？なんだか不思議な場所だな、そこに階段がある、行ってみよう！！', icon: 'Assets/moti.PNG' }
+                        { name: 'もちにゃふぇ', text: '…ふぇ〜〜、あれ？いつものように、にゃんるなちゃんの側で寝ていた気がしたんだけどな…', icon: 'Assets/moti.png' },
+                        { name: 'もちにゃふぇ', text: 'そもそも何でしゃべれるんだろ？なんだか不思議な場所だな、そこに階段がある、行ってみよう！！', icon: 'Assets/moti.png' }
                     ];
                     UI.showConversation(script, onComplete);
                 }
