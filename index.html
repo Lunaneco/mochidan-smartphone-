@@ -93,6 +93,20 @@
             display: block;
         }
 
+        /* ミニマップ */
+        #minimap-canvas {
+            position: absolute;
+            top: 5px;
+            right: 5px;
+            width: 80px;
+            height: 80px;
+            background-color: rgba(0, 0, 0, 0.5);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            border-radius: 4px;
+            z-index: 100;
+            pointer-events: none;
+        }
+
         /* ログウィンドウ（画面上部にかぶせる） */
         #log-window {
             position: absolute;
@@ -721,6 +735,7 @@
         <!-- キャバスエリア -->
         <div id="canvas-container">
             <canvas id="game-canvas"></canvas>
+            <canvas id="minimap-canvas"></canvas>
             <!-- ログウィンドウ -->
             <div id="log-window"></div>
         </div>
@@ -1049,12 +1064,14 @@
                 this.width = w;
                 this.height = h;
                 this.data = new Array(h).fill(0).map(() => new Array(w).fill(TILE.WALL));
+                this.visited = new Array(h).fill(0).map(() => new Array(w).fill(false));
                 this.rooms = [];
             }
 
             // BSP（二分空間分割）ベースのマップ生成
             generate() {
                 this.data = new Array(this.height).fill(0).map(() => new Array(this.width).fill(TILE.WALL));
+                this.visited = new Array(this.height).fill(0).map(() => new Array(this.width).fill(false));
                 this.rooms = [];
 
                 const MIN_SIZE = 6; // 最小分割サイズ
@@ -2721,6 +2738,14 @@
                 this.canvas = document.getElementById('game-canvas');
                 this.ctx = this.canvas.getContext('2d');
 
+                // ミニマップの初期化
+                this.minimapCanvas = document.getElementById('minimap-canvas');
+                if (this.minimapCanvas) {
+                    this.minimapCanvas.width = MAP_WIDTH * 2; // 1タイル2pxで80px
+                    this.minimapCanvas.height = MAP_HEIGHT * 2;
+                    this.minimapCtx = this.minimapCanvas.getContext('2d');
+                }
+
                 this.map = new DungeonMap(MAP_WIDTH, MAP_HEIGHT);
                 this.player = new Player(0, 0);
                 this.player.inv = [];
@@ -3044,6 +3069,7 @@
                     UI.log(`地下 ${this.floor}階 に降りた。`);
                 }
                 UI.updateStatus(this.player, this.floor);
+                this.updateDiscovery(this.player.x, this.player.y);
             }
 
             // ターン処理の進行
@@ -3129,6 +3155,7 @@
                     if (this.player.awakenTurns === 0) UI.log('覚醒が解けた……');
                 }
 
+                this.updateDiscovery(this.player.x, this.player.y);
                 this.processTurn();
                 this.updateAwakenButton();
                 this.draw();
@@ -4753,6 +4780,85 @@
                 } else {
                     const playerTex = PixelArtEngine.textures[atk ? `player_atk_${dir}` : (dir === 'down' ? 'player' : `player_${dir}`)] || PixelArtEngine.textures.player;
                     this.ctx.drawImage(playerTex, px, py);
+                }
+
+                // ミニマップの描画
+                this.drawMinimap();
+            }
+
+            drawMinimap() {
+                if (!this.minimapCtx) return;
+                const mCtx = this.minimapCtx;
+                const dotSize = 2; // 1タイル2px
+
+                // キャンバスクリア
+                mCtx.clearRect(0, 0, this.minimapCanvas.width, this.minimapCanvas.height);
+
+                // マップ（床・通路）の描画
+                for (let y = 0; y < this.map.height; y++) {
+                    for (let x = 0; x < this.map.width; x++) {
+                        if (!this.map.visited[y][x]) continue;
+
+                        const tile = this.map.data[y][x];
+                        if (tile === TILE.STAIRS) {
+                            mCtx.fillStyle = '#888888'; // 階段は灰色
+                            mCtx.fillRect(x * dotSize, y * dotSize, dotSize, dotSize);
+                        } else if (tile !== TILE.WALL && tile !== TILE.OUT_BOUNDARY) {
+                            mCtx.fillStyle = 'rgba(150, 150, 150, 0.4)';
+                            mCtx.fillRect(x * dotSize, y * dotSize, dotSize, dotSize);
+                        }
+                    }
+                }
+
+                // アイテムの描画 (黄)
+                this.items.forEach(item => {
+                    if (this.map.visited[item.y][item.x]) {
+                        mCtx.fillStyle = '#ffff00';
+                        mCtx.fillRect(item.x * dotSize, item.y * dotSize, dotSize, dotSize);
+                    }
+                });
+
+                // 敵の描画 (赤)
+                this.enemies.forEach(enemy => {
+                    if (enemy.hp > 0 && this.map.visited[enemy.y][enemy.x]) {
+                        mCtx.fillStyle = '#ff0000';
+                        mCtx.fillRect(enemy.x * dotSize, enemy.y * dotSize, dotSize, dotSize);
+                    }
+                });
+
+                // プレイヤーの描画 (白)
+                mCtx.fillStyle = '#ffffff';
+                mCtx.fillRect(this.player.x * dotSize, this.player.y * dotSize, dotSize, dotSize);
+            }
+
+            // 探索状態を更新する
+            updateDiscovery(x, y) {
+                if (!this.map || !this.map.visited) return;
+
+                // 現在地を探索済みに
+                this.map.visited[y][x] = true;
+
+                // 部屋の中にいる場合、その部屋の全タイルを探索済みにする
+                const currentRoom = this.map.rooms.find(r =>
+                    x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h
+                );
+                if (currentRoom) {
+                    for (let ry = currentRoom.y; ry < currentRoom.y + currentRoom.h; ry++) {
+                        for (let rx = currentRoom.x; rx < currentRoom.x + currentRoom.w; rx++) {
+                            this.map.visited[ry][rx] = true;
+                        }
+                    }
+                }
+
+                // 周囲1マス（3x3）を探索済みにする（通路の壁などを視覚化するため）
+                for (let dy = -1; dy <= 1; dy++) {
+                    for (let dx = -1; dx <= 1; dx++) {
+                        const nx = x + dx;
+                        const ny = y + dy;
+                        if (nx >= 0 && nx < this.map.width && ny >= 0 && ny < this.map.height) {
+                            this.map.visited[ny][nx] = true;
+                        }
+                    }
                 }
             }
 
