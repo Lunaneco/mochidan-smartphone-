@@ -24,6 +24,9 @@
             box-sizing: border-box;
             user-select: none;
             -webkit-user-select: none;
+            -webkit-touch-callout: none; /* iOSで長押しメニューを禁止 */
+            -webkit-tap-highlight-color: transparent; /* タップ時のハイライトを消す */
+            touch-action: manipulation; /* ダブルタップズームを防止 */
         }
 
         body,
@@ -149,6 +152,7 @@
             height: 110px; /* 展開時の高さ */
             overflow: hidden;
             transition: height 0.25s ease, opacity 0.25s ease;
+            touch-action: none; /* スマホでの誤ズーム・スクロール防止 */
         }
 
         #dir-pad.collapsed {
@@ -191,6 +195,7 @@
             grid-template-rows: 1fr;
             gap: 5px;
             height: 52px;
+            touch-action: none; /* スマホでの誤ズーム・スクロール防止 */
         }
 
         .btn-action {
