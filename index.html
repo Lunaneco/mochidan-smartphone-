@@ -1238,6 +1238,77 @@
                 }
                 this.rooms.push({ x: rx, y: ry, w: rw, h: rh, cx: Math.floor(rx + rw / 2), cy: Math.floor(ry + rh / 2) });
             }
+
+            findPath(startX, startY, targetX, targetY, enemies = [], player = null) {
+                // A* アルゴリズム
+                const openSet = [{ x: startX, y: startY, g: 0, h: this.getDist(startX, startY, targetX, targetY), f: 0, parent: null }];
+                const closedSet = new Set();
+                const mapKey = (x, y) => `${x},${y}`;
+
+                openSet[0].f = openSet[0].h;
+
+                const MAX_ITERATIONS = 500;
+                let iterations = 0;
+
+                while (openSet.length > 0 && iterations < MAX_ITERATIONS) {
+                    iterations++;
+                    openSet.sort((a, b) => a.f - b.f);
+                    const current = openSet.shift();
+
+                    if (current.x === targetX && current.y === targetY) {
+                        const path = [];
+                        let temp = current;
+                        while (temp.parent) {
+                            path.push({ x: temp.x, y: temp.y });
+                            temp = temp.parent;
+                        }
+                        return path.reverse();
+                    }
+
+                    closedSet.add(mapKey(current.x, current.y));
+
+                    for (let dy = -1; dy <= 1; dy++) {
+                        for (let dx = -1; dx <= 1; dx++) {
+                            if (dx === 0 && dy === 0) continue;
+                            const nx = current.x + dx;
+                            const ny = current.y + dy;
+                            const key = mapKey(nx, ny);
+
+                            if (closedSet.has(key)) continue;
+                            if (nx < 0 || nx >= this.width || ny < 0 || ny >= this.height) continue;
+
+                            if (this.isWalkable(nx, ny)) {
+                                // 目的地以外の敵・プレイヤーを障害物とみなす
+                                const isOccupied = (enemies && enemies.some(e => e.x === nx && e.y === ny && e.hp > 0 && (nx !== targetX || ny !== targetY))) ||
+                                                 (player && player.x === nx && player.y === ny && (nx !== targetX || ny !== targetY));
+
+                                if (!isOccupied) {
+                                    const g = current.g + 1;
+                                    const h = this.getDist(nx, ny, targetX, targetY);
+                                    const f = g + h;
+
+                                    const existing = openSet.find(node => node.x === nx && node.y === ny);
+                                    if (existing) {
+                                        if (g < existing.g) {
+                                            existing.g = g;
+                                            existing.f = f;
+                                            existing.parent = current;
+                                        }
+                                    } else {
+                                        openSet.push({ x: nx, y: ny, g, h, f, parent: current });
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                return null;
+            }
+
+            getDist(x1, y1, x2, y2) {
+                // Chebyshev距離
+                return Math.max(Math.abs(x1 - x2), Math.abs(y1 - y2));
+            }
         }
 
         // エンティティ基底クラス
@@ -1610,6 +1681,13 @@
                                             player.y = nbY;
                                             UI.log("衝撃で弾き飛ばされた！");
                                         }
+                                    } else if (gameManager.companion && gameManager.companion.isJoined &&
+                                        tx === gameManager.companion.x && ty === gameManager.companion.y) {
+                                        // 仲間へのダメージ
+                                        let cDef = gameManager.companion.def;
+                                        let tremorDmg = Math.max(5, 30 - Math.floor(cDef / 2));
+                                        gameManager.companion.hp -= tremorDmg;
+                                        UI.log(`おむすびさんに ${tremorDmg} のダメージ！`);
                                     }
                                 }
                             }
@@ -1637,6 +1715,12 @@
                                         let thornDmg = Math.max(2, 12 - Math.floor(pDef / 4));
                                         player.hp -= thornDmg;
                                         UI.log(`飛んできたトゲで ${thornDmg} のダメージ！`);
+                                    } else if (gameManager.companion && gameManager.companion.isJoined &&
+                                        tx === gameManager.companion.x && ty === gameManager.companion.y) {
+                                        let cDef = gameManager.companion.def;
+                                        let thornDmg = Math.max(2, 8 - Math.floor(cDef / 4));
+                                        gameManager.companion.hp -= thornDmg;
+                                        UI.log(`飛んできたトゲがおむすびさんに ${thornDmg} のダメージ！`);
                                     }
                                 }
                             }
@@ -1729,13 +1813,34 @@
                         if (refDmg > 0) { this.hp -= refDmg; UI.log(`${this.type}に ${refDmg} の反射ダメージ！`); }
                     }
                 } else if (dist <= 5) {
+                    // 通常の移動・追走ロジック
                     const mx = dx === 0 ? 0 : (dx > 0 ? 1 : -1);
                     const my = dy === 0 ? 0 : (dy > 0 ? 1 : -1);
                     const nx = this.x + mx;
                     const ny = this.y + my;
                     if (map.isWalkable(nx, ny) && (nx !== player.x || ny !== player.y)) {
-                        const occupied = enemies.some(e => e !== this && e.x === nx && e.y === ny && e.hp > 0);
-                        if (!occupied) { this.x = nx; this.y = ny; }
+                        // 仲間がいる場合は重ならないようにする
+                        const isCompanionHere = gameManager.companion && gameManager.companion.x === nx && gameManager.companion.y === ny;
+                        if (!isCompanionHere) {
+                            const occupied = enemies.some(e => e !== this && e.x === nx && e.y === ny && e.hp > 0);
+                            if (!occupied) { this.x = nx; this.y = ny; }
+                        }
+                    }
+                }
+
+                // 仲間（おむすびさん）への攻撃・接近ロジックの追加（味方になっている場合のみ）
+                if (gameManager.companion && gameManager.companion.isJoined && gameManager.companion.hp > 0) {
+                    const cdx = gameManager.companion.x - this.x;
+                    const cdy = gameManager.companion.y - this.y;
+                    const cdist = Math.max(Math.abs(cdx), Math.abs(cdy));
+
+                    // プレイヤーより仲間が近い、またはプレイヤーが射程外で仲間が射程内の場合
+                    if (cdist < dist && cdist === 1) {
+                        let cDef = gameManager.companion.def;
+                        let damage = Math.max(1, this.str - Math.floor(cDef / 2));
+                        gameManager.companion.hp -= damage;
+                        UI.log(`${this.type}の攻撃！ おむすびさんに ${damage} のダメージ！`);
+                        return;
                     }
                 }
             }
@@ -1762,8 +1867,149 @@
                     return this.name;
                 }
             }
+        }
 
+        // 仲間（コンパニオン）クラス
+        class Companion extends Entity {
+            constructor(x, y, player) {
+                super(x, y);
+                this.type = 'おむすびさん';
+                this.hp = player.hp;
+                this.maxHp = player.maxHp;
+                this.str = player.str;
+                this.def = player.def;
+                this.isJoined = false;
+                this.direction = 'down';
+                this.walkFrame = 0;
+            }
 
+            act(player, map, enemies, gameManager) {
+                if (this.hp <= 0) return;
+
+                const dx = player.x - this.x;
+                const dy = player.y - this.y;
+                const distToPlayer = Math.max(Math.abs(dx), Math.abs(dy));
+
+                if (!this.isJoined) {
+                    // まだ仲間になっていない場合：プレイヤーに近づく
+                    if (distToPlayer === 1) {
+                        // 隣接したら会話イベント
+                        UI.showConversation([
+                            { name: 'おむすびさん', text: '安心しろ、全てうまくいく！！', icon: 'omusubisan.png' }
+                        ]);
+                        this.isJoined = true;
+                        UI.log('おむすびさんが仲間に加わった！');
+                        // ステータスを同期
+                        this.hp = player.hp;
+                        this.maxHp = player.maxHp;
+                        this.str = player.str;
+                        this.def = player.def;
+                    } else if (distToPlayer <= 10) {
+                        this.moveToward(player.x, player.y, map, enemies, player);
+                    }
+                } else {
+                    // 仲間になった後：敵を優先して攻撃、いなければプレイヤーに追従
+                    let target = null;
+                    let minDist = 11;
+
+                    enemies.forEach(e => {
+                        if (e.hp > 0) {
+                            const d = Math.max(Math.abs(e.x - this.x), Math.abs(e.y - this.y));
+                            if (d < minDist) {
+                                minDist = d;
+                                target = e;
+                            }
+                        }
+                    });
+
+                    if (target) {
+                        if (minDist === 1) {
+                            // 隣接する敵を攻撃
+                            this.attack(target, gameManager);
+                        } else {
+                            // 敵に近づく
+                            this.moveToward(target.x, target.y, map, enemies, player);
+                        }
+                    } else if (distToPlayer > 1) {
+                        // 敵がいない場合はプレイヤーに追従
+                        this.moveToward(player.x, player.y, map, enemies, player);
+                    }
+                }
+            }
+
+            moveToward(tx, ty, map, enemies, player) {
+                // A*による経路探索
+                const path = map.findPath(this.x, this.y, tx, ty, enemies, player);
+
+                if (path && path.length > 0) {
+                    const nextStep = path[0];
+                    const mx = nextStep.x - this.x;
+                    const my = nextStep.y - this.y;
+
+                    // 向きの更新
+                    if (mx > 0 && my > 0) this.direction = 'down-right';
+                    else if (mx > 0 && my < 0) this.direction = 'up-right';
+                    else if (mx < 0 && my > 0) this.direction = 'down-left';
+                    else if (mx < 0 && my < 0) this.direction = 'up-left';
+                    else if (mx > 0) this.direction = 'right';
+                    else if (mx < 0) this.direction = 'left';
+                    else if (my > 0) this.direction = 'down';
+                    else if (my < 0) this.direction = 'up';
+
+                    this.x = nextStep.x;
+                    this.y = nextStep.y;
+                    this.walkFrame++;
+                } else {
+                    // 経路が見つからない場合のフォールバック（従来の距離優先移動）
+                    const candidates = [];
+                    for (let dy = -1; dy <= 1; dy++) {
+                        for (let dx = -1; dx <= 1; dx++) {
+                            if (dx === 0 && dy === 0) continue;
+                            const nx = this.x + dx;
+                            const ny = this.y + dy;
+                            if (map.isWalkable(nx, ny) && (nx !== player.x || ny !== player.y)) {
+                                const occupied = enemies.some(e => e.x === nx && e.y === ny && e.hp > 0);
+                                if (!occupied) {
+                                    const dist = Math.max(Math.abs(tx - nx), Math.abs(ty - ny));
+                                    candidates.push({ x: nx, y: ny, dx, dy, dist });
+                                }
+                            }
+                        }
+                    }
+                    if (candidates.length > 0) {
+                        candidates.sort((a, b) => a.dist - b.dist);
+                        const best = candidates[0];
+                        const mx = best.dx;
+                        const my = best.dy;
+                        if (mx > 0 && my > 0) this.direction = 'down-right';
+                        else if (mx > 0 && my < 0) this.direction = 'up-right';
+                        else if (mx < 0 && my > 0) this.direction = 'down-left';
+                        else if (mx < 0 && my < 0) this.direction = 'up-left';
+                        else if (mx > 0) this.direction = 'right';
+                        else if (mx < 0) this.direction = 'left';
+                        else if (my > 0) this.direction = 'down';
+                        else if (my < 0) this.direction = 'up';
+                        this.x = best.x;
+                        this.y = best.y;
+                        this.walkFrame++;
+                    }
+                }
+            }
+
+            attack(target, gameManager) {
+                SoundManager.playAttack();
+                let damage = Math.max(1, this.str - Math.floor(target.def / 2));
+                target.hp -= damage;
+                UI.log(`おむすびさんの攻撃！ ${target.type}に ${damage} のダメージ！`);
+                gameManager.checkEnemyDeath(target, this);
+            }
+
+            die(gameManager) {
+                UI.log('おむすびさんは倒れてしまった……');
+                UI.log('おむすびを落とした。');
+                gameManager.items.push(new Item(this.x, this.y, 'food_omusubi', 'おむすび', 100));
+                gameManager.companion = null;
+            }
         }
 
         // ピクセルアートエンジン
@@ -1819,7 +2065,8 @@
             'y': '#FFD700', // God Gold
             'w': '#FFFFFF',  // God White
             'X': 'rgba(0,0,0,0.5)', // 半透明黒（壁枠用）
-            'Y': 'rgba(255,255,255,0.2)' // 半透明白（枠ハイライト）
+            'Y': 'rgba(255,255,255,0.2)', // 半透明白（枠ハイライト）
+            'G': '#4caf50'  // 仲間のミニマップ表示用（緑）
         };
 
         const SPRITES = {
@@ -2210,6 +2457,24 @@
                 "0000000000000000",
                 "................"
             ],
+            item_omusubi: [
+                "................",
+                ".....6666.......",
+                "....666666......",
+                "...66666666.....",
+                "..6666666666....",
+                ".666666666666...",
+                "66666666666666..",
+                "66600000000666..",
+                "66077777777066..",
+                "66077777777066..",
+                "66000000000066..",
+                "66666666666666..",
+                "................",
+                "................",
+                "................",
+                "................"
+            ],
             item_disk: [
                 "................",
                 ".....000000.....",
@@ -2513,6 +2778,19 @@
                 ".....AAAAA......",
                 "................"
             ],
+            // おむすびアイテム (全回復)
+            item_omusubi: [
+                "................",
+                ".......66.......",
+                "......6666......",
+                ".....666666.....",
+                "....66666666....",
+                "...6666666666...",
+                "..666600006666..",
+                "..666600006666..",
+                "..000000000000..",
+                "................"
+            ],
             // 炎エフェクト（ブレス用）
             fx_fire: [
                 "................",
@@ -2662,6 +2940,33 @@
             }
         };
 
+        const OMUSUBI_SPRITE_CONFIG = {
+            'up': [
+                { sx: 0, sy: 0, sw: 101, sh: 124 }
+            ],
+            'right': [
+                { sx: 0, sy: 124, sw: 105, sh: 124 }
+            ],
+            'down': [
+                { sx: 0, sy: 248, sw: 110, sh: 125 }
+            ],
+            'left': [
+                { sx: 0, sy: 373, sw: 109, sh: 125 }
+            ],
+            'up-left': [
+                { sx: 0, sy: 498, sw: 125, sh: 145 }
+            ],
+            'up-right': [
+                { sx: 0, sy: 643, sw: 125, sh: 145 }
+            ],
+            'down-right': [
+                { sx: 0, sy: 788, sw: 125, sh: 145 }
+            ],
+            'down-left': [
+                { sx: 0, sy: 933, sw: 125, sh: 144 }
+            ]
+        };
+
         class PixelArtEngine {
             static textures = {};
             static mochinyafeImg = null;
@@ -2670,12 +2975,20 @@
                 for (let key in SPRITES) {
                     this.textures[key] = this.createTexture(SPRITES[key], targetSize);
                 }
-                return new Promise((resolve) => {
-                    this.mochinyafeImg = new Image();
-                    this.mochinyafeImg.onload = () => resolve();
-                    this.mochinyafeImg.onerror = () => resolve();
-                    this.mochinyafeImg.src = 'motimoti.png';
-                });
+                return Promise.all([
+                    new Promise((resolve) => {
+                        this.mochinyafeImg = new Image();
+                        this.mochinyafeImg.onload = () => resolve();
+                        this.mochinyafeImg.onerror = () => resolve();
+                        this.mochinyafeImg.src = 'motimoti.png';
+                    }),
+                    new Promise((resolve) => {
+                        this.omusubiImg = new Image();
+                        this.omusubiImg.onload = () => resolve();
+                        this.omusubiImg.onerror = () => resolve();
+                        this.omusubiImg.src = 'omusubi.png';
+                    })
+                ]);
             }
             static createTexture(data, size) {
                 const h = data.length;
@@ -2755,6 +3068,7 @@
                 this.player.equipAbi = null;
                 this.enemies = [];
                 this.items = [];
+                this.companion = null;
                 this.baseItems = []; // 拠点に置いたアイテムの保存用
                 this.storage = [];   // 倉庫の中身
                 this.floor = 0;      // 0は拠点
@@ -2781,6 +3095,7 @@
                 this.player.equipAbi = null;
                 this.enemies = [];
                 this.items = [];
+                this.companion = null;
                 this.baseItems = []; // 拠点アイテムもリセット
                 this.storage = [];   // 倉庫もリセット
                 this.camera = { x: 0, y: 0 };
@@ -3035,6 +3350,29 @@
                         else break;
                     }
 
+                    // おむすびさんのスポーン判定 (既にいない場合、または加わっていない場合は新しく抽選)
+                    if (this.companion && !this.companion.isJoined) {
+                        this.companion = null;
+                    }
+
+                    if (!this.companion && this.floor % 10 !== 0 && Math.random() < 0.20) {
+                        // プレイヤーの部屋(rooms[0])以外からランダムに選択
+                        if (this.map.rooms.length > 1) {
+                            const r = this.map.rooms[Math.floor(Math.random() * (this.map.rooms.length - 1)) + 1];
+                            let spawned = false;
+                            for (let attempt = 0; attempt < 20 && !spawned; attempt++) {
+                                const ex = r.x + Math.floor(Math.random() * r.w);
+                                const ey = r.y + Math.floor(Math.random() * r.h);
+                                if (this.map.isWalkable(ex, ey) && (ex !== this.player.x || ey !== this.player.y)) {
+                                    this.companion = new Companion(ex, ey, this.player);
+                                    spawned = true;
+                                }
+                            }
+                        }
+                    } else if (this.companion && this.companion.isJoined) {
+                        // 既に仲間がいる場合（通常階）はここでは何もしない（最後に共通処理で配置するため）
+                    }
+
                     for (let i = 1; i < this.map.rooms.length; i++) {
                         const r = this.map.rooms[i];
 
@@ -3068,6 +3406,27 @@
                     }
                     UI.log(`地下 ${this.floor}階 に降りた。`);
                 }
+
+                // 仲間化済みのおむすびさんのフロア移動後再配置（全フロア共通：拠点・ボス階含む）
+                if (this.companion && this.companion.isJoined) {
+                    let placed = false;
+                    for (let dy = -1; dy <= 1 && !placed; dy++) {
+                        for (let dx = -1; dx <= 1 && !placed; dx++) {
+                            if (dx === 0 && dy === 0) continue; // プレイヤーの足元以外
+                            const nx = this.player.x + dx, ny = this.player.y + dy;
+                            if (this.map.isWalkable(nx, ny) && !this.enemies.some(e => e.x === nx && e.y === ny && e.hp > 0)) {
+                                this.companion.x = nx;
+                                this.companion.y = ny;
+                                placed = true;
+                            }
+                        }
+                    }
+                    if (!placed) {
+                        this.companion.x = this.player.x;
+                        this.companion.y = this.player.y;
+                    }
+                }
+
                 UI.updateStatus(this.player, this.floor);
                 this.updateDiscovery(this.player.x, this.player.y);
             }
@@ -3111,6 +3470,14 @@
                             enemy.act(this.player, this.map, this.enemies, this);
                             if (enemy.hp > 0) enemy.act(this.player, this.map, this.enemies, this);
                         }
+                    }
+                }
+
+                if (this.companion) {
+                    if (this.companion.hp > 0) {
+                        this.companion.act(this.player, this.map, this.enemies, this);
+                    } else {
+                        this.companion.die(this);
                     }
                 }
 
@@ -3188,6 +3555,13 @@
 
                 const nx = this.player.x + dx;
                 const ny = this.player.y + dy;
+
+                // おむすびさんとの会話イベント判定
+                if (this.companion && !this.companion.isJoined && this.companion.x === nx && this.companion.y === ny) {
+                    // 隣接もしく重なろうとしたら会話
+                    this.companion.act(this.player, this.map, this.enemies, this);
+                    return;
+                }
 
                 // 向きを更新
                 if (dx > 0 && dy > 0) this.player.direction = 'down-right';
@@ -3339,6 +3713,17 @@
                 this.player.x = nx;
                 this.player.y = ny;
                 this.player.walkFrame = (this.player.walkFrame + 1) % 2; // 歩行アニメーション切り替え
+
+                // おむすびさんとの隣接判定（移動直後）
+                if (this.companion && !this.companion.isJoined) {
+                    const dist = Math.max(Math.abs(this.player.x - this.companion.x), Math.abs(this.player.y - this.companion.y));
+                    if (dist === 1) {
+                        this.companion.act(this.player, this.map, this.enemies, this);
+                        // 会話イベントが発生した場合はここで一旦中断（ターンはCompanion.act内で処理される）
+                        this.draw();
+                        return;
+                    }
+                }
 
                 // 足元のアイテムを自動取得
                 const itemIdx = this.items.findIndex(i => i.x === this.player.x && i.y === this.player.y);
@@ -3519,7 +3904,6 @@
                     return 6; // その他
                 };
 
-                // 同カテゴリ内では名前の長さ（具体性）で降順、次いで名前の昇順にソート
                 this.player.inv.sort((a, b) => {
                     const pa = getSortPriority(a);
                     const pb = getSortPriority(b);
@@ -3550,6 +3934,7 @@
                 this.player.inv = [];
                 this.player.equipAtk = null;
                 this.player.equipDef = null;
+                this.player.equipAcc = null;
                 this.player.equipAbi = null;
                 this.resetPlayerStatsForBase();
 
@@ -3623,6 +4008,8 @@
                         } else if (item.type === 'food') {
                             if (item.name === 'パンケーキ') descText = '満腹度が25%回復';
                             else if (item.name === '大きなパンケーキ') descText = '満腹度を50%回復';
+                        } else if (item.type === 'food_omusubi') {
+                            descText = '満腹度全回復';
                         } else if (item.type === 'potion') {
                             if (item.name === 'ラベンダーティー') descText = 'HPを60回復';
                         } else if (item.type === 'disk_exit' || item.type === 'comic_synth') {
@@ -3778,6 +4165,10 @@
                         }
                         // 腹持ち効果（3ターン）を追加
                         this.player.fullnessDuration = 3;
+                        this.player.inv.splice(index, 1);
+                    } else if (item.type === 'food_omusubi') {
+                        this.player.food = 100;
+                        UI.log(`${item.name}を食べた。お腹がパンパンになった！`);
                         this.player.inv.splice(index, 1);
                     } else if (item.type === 'potion') {
                         if (this.player.hp >= this.player.maxHp) {
@@ -4053,7 +4444,7 @@
             }
 
             // 敵の死亡判定と経験値獲得処理の共通化
-            checkEnemyDeath(enemy) {
+            checkEnemyDeath(enemy, attacker = this.player) {
                 if (enemy.hp <= 0 && enemy.hp !== -9999) {
                     // 創造主の第2形態移行チェック (経験値獲得前に行う)
                     if (enemy.baseType === '創造主' && enemy.phase === 1) {
@@ -4073,7 +4464,7 @@
                     UI.log(`${enemy.type}を倒し、${gainedExp} の経験値を得た！`);
                     this.player.exp = (this.player.exp || 0) + gainedExp;
 
-                    // 覚醒ゲージ「敵撃破」で+20
+                    // 覚醒ゲージ「敵撃破」で+20 (アタッカーに関わらずプレイヤーに入る)
                     if (this.player.awakenTurns === 0) {
                         this.player.awakenGauge = Math.min(this.player.awakenMax, this.player.awakenGauge + 20);
                         this.updateAwakenButton();
@@ -4640,6 +5031,7 @@
                     if (px >= -TILE_SIZE && px <= this.canvas.width && py >= -TILE_SIZE && py <= this.canvas.height) {
                         let tex;
                         if (item.type === 'food') tex = PixelArtEngine.externalTextures.item_food_img || PixelArtEngine.textures.item_food;
+                        else if (item.type === 'food_omusubi') tex = PixelArtEngine.textures.item_omusubi;
                         else if (item.type === 'potion') tex = PixelArtEngine.externalTextures.item_potion_img || PixelArtEngine.textures.item_potion;
                         else if (item.type === 'disk_atk') tex = PixelArtEngine.textures.item_heart_atk;
                         else if (item.type === 'disk_def') tex = PixelArtEngine.textures.item_heart_def;
@@ -4739,6 +5131,39 @@
                     }
                 });
 
+                if (this.companion && this.companion.hp > 0) {
+                    const px = this.companion.x * TILE_SIZE - cx;
+                    const py = this.companion.y * TILE_SIZE - cy;
+                    if (px >= -TILE_SIZE && px <= this.canvas.width && py >= -TILE_SIZE && py <= this.canvas.height) {
+                        const img = PixelArtEngine.omusubiImg;
+                        const dir = this.companion.direction || 'down';
+                        const frames = OMUSUBI_SPRITE_CONFIG[dir] || OMUSUBI_SPRITE_CONFIG['down'];
+                        const sprite = frames[this.companion.walkFrame % frames.length];
+
+                        if (img && img.complete && sprite) {
+                            const targetSize = TILE_SIZE;
+                            const scale = Math.min(targetSize / sprite.sw, targetSize / sprite.sh);
+                            const drawW = sprite.sw * scale;
+                            const drawH = sprite.sh * scale;
+                            const offX = (targetSize - drawW) / 2;
+                            const offY = (targetSize - drawH) / 2;
+
+                            this.ctx.drawImage(
+                                img,
+                                sprite.sx, sprite.sy, sprite.sw, sprite.sh,
+                                px + offX, py + offY, drawW, drawH
+                            );
+                        }
+
+                        // HPバー
+                        const hpRatio = this.companion.hp / this.companion.maxHp;
+                        this.ctx.fillStyle = 'red';
+                        this.ctx.fillRect(px, py - 7, TILE_SIZE, 5);
+                        this.ctx.fillStyle = '#4caf50'; // コンパニオンは緑
+                        this.ctx.fillRect(px, py - 7, TILE_SIZE * Math.max(0, hpRatio), 5);
+                    }
+                }
+
                 const px = this.player.x * TILE_SIZE - cx;
                 const py = this.player.y * TILE_SIZE - cy;
                 const dir = this.player.direction || 'down';
@@ -4829,6 +5254,12 @@
                 // プレイヤーの描画 (白)
                 mCtx.fillStyle = '#ffffff';
                 mCtx.fillRect(this.player.x * dotSize, this.player.y * dotSize, dotSize, dotSize);
+
+                // 仲間の描画 (緑)
+                if (this.companion && this.companion.hp > 0 && this.map.visited[this.companion.y][this.companion.x]) {
+                    mCtx.fillStyle = '#4caf50';
+                    mCtx.fillRect(this.companion.x * dotSize, this.companion.y * dotSize, dotSize, dotSize);
+                }
             }
 
             // 探索状態を更新する
