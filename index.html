@@ -1828,7 +1828,8 @@
 
                 if (gameManager.companions.length > 0) {
                     for (const comp of gameManager.companions) {
-                        if (comp.hp > 0) {
+                        // 仲間（Joined）状態のコンパニオンのみを攻撃対象にする
+                        if (comp.hp > 0 && comp.isJoined) {
                             const cdx = comp.x - this.x;
                             const cdy = comp.y - this.y;
                             const cdist = Math.max(Math.abs(cdx), Math.abs(cdy));
@@ -3470,10 +3471,12 @@
                         if (this.map.rooms.length > 1) {
                             const r = this.map.rooms[Math.floor(Math.random() * (this.map.rooms.length - 1)) + 1];
                             let spawned = false;
-                            for (let attempt = 0; attempt < 20 && !spawned; attempt++) {
-                                const ex = r.x + Math.floor(Math.random() * r.w);
-                                const ey = r.y + Math.floor(Math.random() * r.h);
-                                if (this.map.isWalkable(ex, ey) && (ex !== this.player.x || ey !== this.player.y)) {
+                            for (let attempt = 0; attempt < 50 && !spawned; attempt++) {
+                                // 部屋の境界（壁）を避けるため +1, -2 の範囲で抽選
+                                const ex = r.x + 1 + Math.floor(Math.random() * (r.w - 2));
+                                const ey = r.y + 1 + Math.floor(Math.random() * (r.h - 2));
+                                // 確実に床タイルであることを確認
+                                if (this.map.getTile(ex, ey) === TILE.FLOOR && (ex !== this.player.x || ey !== this.player.y)) {
                                     this.companions.push(new Patti(ex, ey, this.player));
                                     spawned = true;
                                 }
@@ -3486,10 +3489,10 @@
                         if (this.map.rooms.length > 1) {
                             const r = this.map.rooms[Math.floor(Math.random() * (this.map.rooms.length - 1)) + 1];
                             let spawned = false;
-                            for (let attempt = 0; attempt < 20 && !spawned; attempt++) {
-                                const ex = r.x + Math.floor(Math.random() * r.w);
-                                const ey = r.y + Math.floor(Math.random() * r.h);
-                                if (this.map.isWalkable(ex, ey) && (ex !== this.player.x || ey !== this.player.y)) {
+                            for (let attempt = 0; attempt < 50 && !spawned; attempt++) {
+                                const ex = r.x + 1 + Math.floor(Math.random() * (r.w - 2));
+                                const ey = r.y + 1 + Math.floor(Math.random() * (r.h - 2));
+                                if (this.map.getTile(ex, ey) === TILE.FLOOR && (ex !== this.player.x || ey !== this.player.y)) {
                                     this.companions.push(new Companion(ex, ey, this.player));
                                     spawned = true;
                                 }
