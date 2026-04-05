@@ -841,7 +841,8 @@
             STAIRS: 4,
             STORAGE: 5,
             BASE_EXIT: 6,
-            OUT_BOUNDARY: 7 // どんな能力でも通れない最外周の壁
+            OUT_BOUNDARY: 7, // どんな能力でも通れない最外周の壁
+            NPC_FRAMBOISE: 8
         };
 
         // 効果音（SE）管理
@@ -1217,6 +1218,8 @@
                 this.data[cy - 2][cx - 2] = TILE.STORAGE;
                 // ダンジョン出口（階段の代わり）を配置
                 this.data[cy][cx + 4] = TILE.BASE_EXIT;
+                // ふらんぼわーずさん（NPC）を配置
+                this.data[cy - 2][cx + 2] = TILE.NPC_FRAMBOISE;
 
                 this.rooms.push({ x: cx - size, y: cy - size, w: size * 2 + 1, h: size * 2 + 1, cx: cx, cy: cy });
             }
@@ -1342,6 +1345,7 @@
                 this.isStunned = 0;     // 咆哮による行動不能ターン数
                 this.equipAcc = null;   // アクセサリースロット
                 this.deathCountdown = 0; // ぱっちさんの能力による死の宣告
+                this.maxInv = 30; // 所持品上限（初期値）
             }
 
             hasAbility(abilityName) {
@@ -2106,6 +2110,8 @@
             'H': '#ffff00', // 虹色の翼（イエロー）
             'I': '#4169e1', // 角（ロイヤルブルー）
             'J': '#1e90ff', // 瞳（ドジャーブルー）
+            'X': '#f06292', // ふらんぼわーず（髪：ピンク）
+            'Y': '#e91e63', // ふらんぼわーず（服：濃いピンク）
             // 新モンスターカラー
             'a': '#7cb342', // スライム緑
             'b': '#558b2f', // スライム濃緑
@@ -3110,6 +3116,8 @@
                     'effect_fire_img': 'Assets/fire_breath_effect.png',
                     'enemy_dark_moti_img': 'Assets/darkmoti.png',
                     'enemy_creator_img': 'Assets/godmoti.png',
+                    'npc_hura': 'hura.png',
+                    'npc_hurasan': 'hurasan.png',
                     // ダンジョン背景（プリロード用）
                     'bg_0': 'Assets/0.jpg',
                     'bg_1_10': 'Assets/1-10.jpg',
@@ -3715,6 +3723,32 @@
                 const nx = this.player.x + dx;
                 const ny = this.player.y + dy;
 
+                // ふらんぼわーずさん（固定NPC）との会話イベント判定
+                if (this.map.getTile(nx, ny) === TILE.NPC_FRAMBOISE) {
+                    const heartIdx = this.player.inv.findIndex(it => it.name === '親知らずの心');
+                    let script = [];
+                    if (heartIdx !== -1) {
+                        if (this.player.maxInv < 50) {
+                            script = [
+                                { name: 'ふらんぼわーずさん', text: '親知らずの心、くれるの？ありがとう、荷物を少し多く持てるようにしてあげるね', icon: 'hurasan.png' }
+                            ];
+                            this.player.inv.splice(heartIdx, 1);
+                            this.player.maxInv++;
+                            UI.log("所持品の上限が 1 増えた！");
+                        } else {
+                            script = [
+                                { name: 'ふらんぼわーずさん', text: 'もう荷物はいっぱい持てるみたい。これ以上は私もお手伝いできないかな。', icon: 'hurasan.png' }
+                            ];
+                        }
+                    } else {
+                        script = [
+                            { name: 'ふらんぼわーずさん', text: '親知らずが欲しい…', icon: 'hurasan.png' }
+                        ];
+                    }
+                    UI.showConversation(script);
+                    return;
+                }
+
                 // 仲間（おむすびさん・ぱっちさん）との会話イベント判定
                 const companion = this.companions.find(c => !c.isJoined && (Math.abs(c.x - nx) + Math.abs(c.y - ny) === 0 || (c.x === nx && c.y === ny)));
                 if (companion) {
@@ -3886,7 +3920,7 @@
                 const itemIdx = this.items.findIndex(i => i.x === this.player.x && i.y === this.player.y);
                 if (itemIdx >= 0) {
                     const item = this.items[itemIdx];
-                    if (this.player.inv.length < 30) {
+                    if (this.player.inv.length < this.player.maxInv) {
                         this.player.inv.push(item);
                         this.items.splice(itemIdx, 1);
                         if (this.isAtBase) this.baseItems = [...this.items];
@@ -3910,7 +3944,7 @@
                 if (this.isConversationActive()) return;
                 const idx = this.items.findIndex(i => i.x === this.player.x && i.y === this.player.y);
                 if (idx >= 0) {
-                    if (this.player.inv.length >= 30) {
+                    if (this.player.inv.length >= this.player.maxInv) {
                         UI.log("持ちものがいっぱいで拾えない！");
                         return;
                     }
@@ -3988,7 +4022,7 @@
                 btnWithdraw.onclick = () => { this.storageState = 'withdraw'; this.refreshStorageUI(); };
 
                 const btnDeposit = document.createElement('button');
-                btnDeposit.innerText = `預ける (${this.player.inv.length}/30)`;
+                btnDeposit.innerText = `預ける (${this.player.inv.length}/${this.player.maxInv})`;
                 btnDeposit.style.cssText = `flex:1; padding:8px; border:none; cursor:pointer; background:${this.storageState === 'deposit' ? '#d32f2f' : '#444'}; color:white;`;
                 btnDeposit.onclick = () => { this.storageState = 'deposit'; this.refreshStorageUI(); };
 
@@ -4028,7 +4062,7 @@
 
             executeStorageAction(index) {
                 if (this.storageState === 'withdraw') {
-                    if (this.player.inv.length >= 30) {
+                    if (this.player.inv.length >= this.player.maxInv) {
                         UI.log("手荷物がいっぱいです。");
                         return;
                     }
@@ -5179,6 +5213,18 @@
                             if (tile === TILE.STAIRS) this.ctx.drawImage(PixelArtEngine.textures.tile_stairs, px, py);
                             else if (tile === TILE.STORAGE) this.ctx.drawImage(PixelArtEngine.textures.tile_storage, px, py);
                             else if (tile === TILE.BASE_EXIT) this.ctx.drawImage(PixelArtEngine.textures.tile_base_exit, px, py);
+                            else if (tile === TILE.NPC_FRAMBOISE) {
+                                const huraImg = PixelArtEngine.externalTextures.npc_hura;
+                                if (huraImg && huraImg.complete) {
+                                    this.ctx.drawImage(huraImg, px, py, TILE_SIZE, TILE_SIZE);
+                                } else {
+                                    // 代替描画（ピンクの円など）
+                                    this.ctx.fillStyle = '#f06292';
+                                    this.ctx.beginPath();
+                                    this.ctx.arc(px + TILE_SIZE / 2, py + TILE_SIZE / 2, TILE_SIZE / 3, 0, Math.PI * 2);
+                                    this.ctx.fill();
+                                }
+                            }
                         }
                     }
                 }
@@ -5599,7 +5645,8 @@
                     const p = o.player;
                     this.player.lv = p.lv; this.player.hp = p.hp; this.player.maxHp = p.maxHp;
                     this.player.str = p.str; this.player.def = p.def; this.player.food = p.food;
-                    this.player.maxFood = p.maxFood; this.player.direction = p.direction;
+                    this.player.maxFood = p.maxFood; this.player.maxInv = p.maxInv || 30; // 追加：所持上限
+                    this.player.direction = p.direction;
                     this.player.fullnessDuration = p.fullnessDuration || 0;
                     this.player.awakenGauge = p.awakenGauge || 0; this.player.awakenTurns = p.awakenTurns || 0;
                     this.player.isDirectionMode = p.isDirectionMode || false;
